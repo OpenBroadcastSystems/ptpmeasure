@@ -1,6 +1,6 @@
 # ptpmeasure: A measurement tool for PTP/ST 2110/ST 2022-6
 
-ptpmeasure is a simple tool to sanity-check ST 2110/2022-6 streams and make measurements relative to PTP. It has minimal dependencies and allows for multi-day measurements without the need to create large packet and unwieldy packet captures. Nor does it require many dependencies.
+ptpmeasure is a simple tool to sanity-check ST 2110/2022-6 streams and make measurements relative to PTP. It has minimal dependencies and allows for multi-day measurements without the need to create large and unwieldy packet captures. Nor does it require many dependencies.
 
 ## Getting Started
 
