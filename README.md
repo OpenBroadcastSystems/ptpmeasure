@@ -7,7 +7,7 @@ ptpmeasure is a simple tool to sanity-check ST 2110/2022-6 streams and make meas
 ### Dependencies
 
 * [bitstream](https://code.videolan.org/videolan/bitstream)
-* libpcap development headers (e.g On Ubuntu/Debian run `apt install libpcap-dev`
+* libpcap development headers (e.g On Ubuntu/Debian run `apt install libpcap-dev`)
 
 ### Supported Network Cards
 
