@@ -236,13 +236,12 @@ void got_packet_2022_6(u_char *user, const struct pcap_pkthdr *header, const u_c
     if (time_for_log(time_buf))
         pcap_breakloop(pcap);
 
-    unsigned frame_len = ETHERNET_HEADER_LEN + ip_get_len(ip_pkt);
     uint64_t recv_timestamp;
     if (mellanox) {
         recv_timestamp = header->ts.tv_sec * UINT64_C(1000000000) + header->ts.tv_usec * 1000;
     } else {
-        uint32_t ts1 = AV_RB32(packet + frame_len);
-        uint32_t ts2 = AV_RB32(packet + frame_len + 4);
+        uint32_t ts1 = AV_RB32(&packet[header->len-9]) + LEAP_SECONDS;
+        uint32_t ts2 = AV_RB32(&packet[header->len-5]);
         recv_timestamp = ts1 * UINT64_C(1000000000) + ts2;
     }
 
