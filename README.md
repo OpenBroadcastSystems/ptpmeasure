@@ -2,6 +2,8 @@
 
 ptpmeasure is a simple tool to sanity-check ST 2110/2022-6 streams and make measurements relative to PTP. It has minimal dependencies and allows for multi-day measurements without the need to create large and unwieldy packet captures. Nor does it require many dependencies.
 
+More information about the measurements can be found here: https://www.slideshare.net/kierank12/ibc-2022-ip-showcase-timestamps-in-st-2110-what-they-mean-and-how-to-measure-them
+
 ## Getting Started
 
 ### Dependencies
