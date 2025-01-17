@@ -55,7 +55,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
                (((const uint8_t*)(x))[2] <<  8) |    \
                 ((const uint8_t*)(x))[3])
 
-static bool mellanox = false;
+static bool mellanox = true;
 
 struct rational {
     uint16_t num, den;
@@ -293,6 +293,7 @@ static const struct option cmd_options[] = {
     { "list-ts-types",       no_argument, NULL, 'l' },
     { "mellanox",            no_argument, NULL, 'm' },
     { "packet-count",  required_argument, NULL, 'c' },
+    { "silicom",             no_argument, NULL, 's' },
     { "ts-type",       required_argument, NULL, 't' },
     { NULL }
 };
@@ -379,6 +380,10 @@ int main(int argc, char *argv[])
 
         case 'm':
             mellanox = true;
+            break;
+
+        case 's':
+            mellanox = false;
             break;
 
         case 't':
