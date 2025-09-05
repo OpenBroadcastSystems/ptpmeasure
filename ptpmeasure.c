@@ -43,6 +43,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <bitstream/ietf/ip.h>
 #include <bitstream/ietf/udp.h>
 #include <bitstream/ietf/rtp.h>
+#include <bitstream/ietf/rfc8331.h>
 #include <bitstream/smpte/2022_6_hbrmt.h>
 
 #include <pcap.h>
@@ -278,14 +279,30 @@ void got_packet_2022_6(u_char *user, const struct pcap_pkthdr *header, const u_c
     counter = (counter + 1) % 25;
 }
 
+void got_packet_ancillary(u_char *user, const struct pcap_pkthdr *header, const u_char *packet)
+{
+    pcap_t *pcap = (pcap_t*)user;
+    uint8_t *ip_pkt = ethernet_payload((uint8_t*)packet);
+    uint8_t *udp_pkt = ip_payload(ip_pkt);
+    uint8_t *rtp_pkt = udp_payload(udp_pkt);
+    uint8_t *payload = rtp_payload(rtp_pkt);
+
+    printf("marker: %d, ts: %u, ext seq num: %u, len: %d, count: %d\n",
+            rtp_check_marker(rtp_pkt), rtp_get_timestamp(rtp_pkt),
+            (unsigned)rtp_get_seqnum(rtp_pkt) | rfc8331_get_extended_sequence_number(payload) << 16,
+            rfc8331_get_length(payload), rfc8331_get_anc_count(payload));
+}
+
 enum mode {
     MODE_2022_6 = 9000,
+    MODE_2110_ANCILLARY,
     MODE_2110_AUDIO,
     MODE_2110_VIDEO,
 };
 
 static const struct option cmd_options[] = {
     { "2022-6",              no_argument, NULL, MODE_2022_6 },
+    { "2110-ancillary",      no_argument, NULL, MODE_2110_ANCILLARY },
     { "2110-video",          no_argument, NULL, MODE_2110_VIDEO },
     { "fps",           required_argument, NULL, 'f' },
     { "help",                no_argument, NULL, 'h' },
@@ -347,6 +364,10 @@ int main(int argc, char *argv[])
     while ((opt = getopt_long(argc, argv, "c:f:hilmt:", cmd_options, NULL)) != -1) switch (opt) {
         case MODE_2022_6:
             mode = MODE_2022_6;
+            break;
+
+        case MODE_2110_ANCILLARY:
+            mode = MODE_2110_ANCILLARY;
             break;
 
         case MODE_2110_VIDEO:
@@ -602,6 +623,10 @@ int main(int argc, char *argv[])
     switch (mode) {
     case MODE_2022_6:
         pcap_loop(pcap, packet_count, got_packet_2022_6, (u_char*)pcap);
+        break;
+
+    case MODE_2110_ANCILLARY:
+        pcap_loop(pcap, packet_count, got_packet_ancillary, (u_char*)pcap);
         break;
 
     case MODE_2110_VIDEO:
