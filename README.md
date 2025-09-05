@@ -37,7 +37,7 @@ An output like this will be generated:
    
 Note for gapped output the first packet arriving ~600us after ideal is normal 
     
-## Audio
+### Audio
 
 To measure a 2110-30 audio flow from 238.16.1.11:5002 on NIC "eth3.38" in “adapter_unsynced” (`--mellanox`) mode:
 
