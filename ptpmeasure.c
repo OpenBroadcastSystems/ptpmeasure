@@ -287,10 +287,65 @@ void got_packet_ancillary(u_char *user, const struct pcap_pkthdr *header, const 
     uint8_t *rtp_pkt = udp_payload(udp_pkt);
     uint8_t *payload = rtp_payload(rtp_pkt);
 
-    printf("marker: %d, ts: %u, ext seq num: %u, len: %d, count: %d\n",
-            rtp_check_marker(rtp_pkt), rtp_get_timestamp(rtp_pkt),
-            (unsigned)rtp_get_seqnum(rtp_pkt) | rfc8331_get_extended_sequence_number(payload) << 16,
-            rfc8331_get_length(payload), rfc8331_get_anc_count(payload));
+    if (fps.num == 0) {
+        printf("marker: %d, ts: %u, ext seq num: %u, len: %d, count: %d\n",
+                rtp_check_marker(rtp_pkt), rtp_get_timestamp(rtp_pkt),
+                (unsigned)rtp_get_seqnum(rtp_pkt) | rfc8331_get_extended_sequence_number(payload) << 16,
+                rfc8331_get_length(payload), rfc8331_get_anc_count(payload));
+        return;
+    }
+
+    uint32_t rtp_timestamp = rtp_get_timestamp(rtp_pkt);
+
+    uint64_t arrival_time_90khz, arrival_time_ns;
+    if (mellanox)
+        arrival_time_ns = arrival_time_90khz = header->ts.tv_sec;
+    else
+        /* Add leap seconds to convert from PC time to TAI */
+        arrival_time_ns = arrival_time_90khz = AV_RB32(&packet[header->len-9]) + LEAP_SECONDS;
+
+    arrival_time_90khz *= 90000;
+    arrival_time_ns *= 1000000000;
+
+    if (mellanox) {
+        arrival_time_90khz += header->ts.tv_usec * 90000 / 1000000;
+        arrival_time_ns += header->ts.tv_usec * 1000;
+    } else {
+        arrival_time_90khz += AV_RB32(&packet[header->len-5]) * UINT64_C(90000) / UINT64_C(1000000000);
+        arrival_time_ns += AV_RB32(&packet[header->len-5]);
+    }
+    arrival_time_90khz &= UINT32_MAX;
+
+    const uint64_t frame_time_ns = UINT64_C(1000000000) * fps.den;
+    __uint128_t temp = fps.num;
+    temp *= arrival_time_ns;
+    temp %= frame_time_ns;
+    uint64_t ideal_ptp_diff_ns = temp;
+
+    temp = arrival_time_ns - ideal_ptp_diff_ns / fps.num;
+    temp = temp * 90000 / 1000000000;
+    temp = temp & UINT32_MAX;
+    int64_t delta = (int64_t)rtp_timestamp - (int64_t)temp;
+
+    char time_buf[256];
+    if (time_for_log(time_buf))
+        pcap_breakloop(pcap);
+
+    if (ideal_ptp_diff_ns > frame_time_ns / 2) {
+        printf("%s: packet arrived %.3f ms before ideal, RTP-PTP offset %.3fus (%"PRId64" rtp), marker: %d.\n",
+                time_buf,
+                (frame_time_ns - ideal_ptp_diff_ns) / (1e6 * fps.num),
+                delta*1e6/90000, delta,
+                rtp_check_marker(rtp_pkt));
+    }
+
+    else {
+        printf("%s: Packet arrived %.3f ms after ideal,  RTP-PTP offset %.3fus (%"PRId64" rtp), marker: %d.\n",
+                time_buf,
+                ideal_ptp_diff_ns / (1e6 * fps.num),
+                delta*1e6/90000, delta,
+                rtp_check_marker(rtp_pkt));
+    }
 }
 
 enum mode {
