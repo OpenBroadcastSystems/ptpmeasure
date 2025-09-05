@@ -278,15 +278,15 @@ void got_packet_2022_6(u_char *user, const struct pcap_pkthdr *header, const u_c
     counter = (counter + 1) % 25;
 }
 
-enum {
-    OPT = 9000,
-    OPT_2022_6,
-    OPT_2110_VIDEO,
+enum mode {
+    MODE_2022_6 = 9000,
+    MODE_2110_AUDIO,
+    MODE_2110_VIDEO,
 };
 
 static const struct option cmd_options[] = {
-    { "2022-6",              no_argument, NULL, OPT_2022_6 },
-    { "2110-video",          no_argument, NULL, OPT_2110_VIDEO },
+    { "2022-6",              no_argument, NULL, MODE_2022_6 },
+    { "2110-video",          no_argument, NULL, MODE_2110_VIDEO },
     { "fps",           required_argument, NULL, 'f' },
     { "help",                no_argument, NULL, 'h' },
     { "interlaced",          no_argument, NULL, 'i' },
@@ -337,20 +337,20 @@ int main(int argc, char *argv[])
 {
     int i = 0;
     char filter_exp[100];
-    bool opt_2022_6 = false, opt_2110_video = false, list_ts = false;
-    bool interlaced = false;
+    enum mode mode = MODE_2110_AUDIO;
+    bool list_ts = false, interlaced = false;
     int packet_count = -1;
     int ret = 0;
     const char *ts_type = NULL;
 
     int opt;
     while ((opt = getopt_long(argc, argv, "c:f:hilmt:", cmd_options, NULL)) != -1) switch (opt) {
-        case OPT_2022_6:
-            opt_2022_6 = true;
+        case MODE_2022_6:
+            mode = MODE_2022_6;
             break;
 
-        case OPT_2110_VIDEO:
-            opt_2110_video = true;
+        case MODE_2110_VIDEO:
+            mode = MODE_2110_VIDEO;
             break;
 
         case 'c':
@@ -403,7 +403,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    if (opt_2110_video && fps.num == 0) {
+    if (mode == MODE_2110_VIDEO && fps.num == 0) {
         fprintf(stderr, "2110 video requires that you give the frame rate with --fps, and --interlaced if necessary\n");
         return 1;
     }
@@ -599,12 +599,19 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (opt_2022_6)
+    switch (mode) {
+    case MODE_2022_6:
         pcap_loop(pcap, packet_count, got_packet_2022_6, (u_char*)pcap);
-    if (opt_2110_video)
+        break;
+
+    case MODE_2110_VIDEO:
         pcap_loop(pcap, packet_count, got_packet_2110_video, (u_char*)pcap);
-    else
+        break;
+
+    case MODE_2110_AUDIO:
         pcap_loop(pcap, packet_count, got_packet, (u_char*)pcap);
+        break;
+    }
 
     close(fd);
 
