@@ -43,6 +43,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #include <bitstream/ietf/ip.h>
 #include <bitstream/ietf/udp.h>
 #include <bitstream/ietf/rtp.h>
+#include <bitstream/ietf/rfc8331.h>
 #include <bitstream/smpte/2022_6_hbrmt.h>
 
 #include <pcap.h>
@@ -278,15 +279,86 @@ void got_packet_2022_6(u_char *user, const struct pcap_pkthdr *header, const u_c
     counter = (counter + 1) % 25;
 }
 
-enum {
-    OPT = 9000,
-    OPT_2022_6,
-    OPT_2110_VIDEO,
+void got_packet_ancillary(u_char *user, const struct pcap_pkthdr *header, const u_char *packet)
+{
+    pcap_t *pcap = (pcap_t*)user;
+    uint8_t *ip_pkt = ethernet_payload((uint8_t*)packet);
+    uint8_t *udp_pkt = ip_payload(ip_pkt);
+    uint8_t *rtp_pkt = udp_payload(udp_pkt);
+    uint8_t *payload = rtp_payload(rtp_pkt);
+
+    if (fps.num == 0) {
+        printf("marker: %d, ts: %u, ext seq num: %u, len: %d, count: %d\n",
+                rtp_check_marker(rtp_pkt), rtp_get_timestamp(rtp_pkt),
+                (unsigned)rtp_get_seqnum(rtp_pkt) | rfc8331_get_extended_sequence_number(payload) << 16,
+                rfc8331_get_length(payload), rfc8331_get_anc_count(payload));
+        return;
+    }
+
+    uint32_t rtp_timestamp = rtp_get_timestamp(rtp_pkt);
+
+    uint64_t arrival_time_90khz, arrival_time_ns;
+    if (mellanox)
+        arrival_time_ns = arrival_time_90khz = header->ts.tv_sec;
+    else
+        /* Add leap seconds to convert from PC time to TAI */
+        arrival_time_ns = arrival_time_90khz = AV_RB32(&packet[header->len-9]) + LEAP_SECONDS;
+
+    arrival_time_90khz *= 90000;
+    arrival_time_ns *= 1000000000;
+
+    if (mellanox) {
+        arrival_time_90khz += header->ts.tv_usec * 90000 / 1000000;
+        arrival_time_ns += header->ts.tv_usec * 1000;
+    } else {
+        arrival_time_90khz += AV_RB32(&packet[header->len-5]) * UINT64_C(90000) / UINT64_C(1000000000);
+        arrival_time_ns += AV_RB32(&packet[header->len-5]);
+    }
+    arrival_time_90khz &= UINT32_MAX;
+
+    const uint64_t frame_time_ns = UINT64_C(1000000000) * fps.den;
+    __uint128_t temp = fps.num;
+    temp *= arrival_time_ns;
+    temp %= frame_time_ns;
+    uint64_t ideal_ptp_diff_ns = temp;
+
+    temp = arrival_time_ns - ideal_ptp_diff_ns / fps.num;
+    temp = temp * 90000 / 1000000000;
+    temp = temp & UINT32_MAX;
+    int64_t delta = (int64_t)rtp_timestamp - (int64_t)temp;
+
+    char time_buf[256];
+    if (time_for_log(time_buf))
+        pcap_breakloop(pcap);
+
+    if (ideal_ptp_diff_ns > frame_time_ns / 2) {
+        printf("%s: packet arrived %.3f ms before ideal, RTP-PTP offset %.3fus (%"PRId64" rtp), marker: %d.\n",
+                time_buf,
+                (frame_time_ns - ideal_ptp_diff_ns) / (1e6 * fps.num),
+                delta*1e6/90000, delta,
+                rtp_check_marker(rtp_pkt));
+    }
+
+    else {
+        printf("%s: Packet arrived %.3f ms after ideal,  RTP-PTP offset %.3fus (%"PRId64" rtp), marker: %d.\n",
+                time_buf,
+                ideal_ptp_diff_ns / (1e6 * fps.num),
+                delta*1e6/90000, delta,
+                rtp_check_marker(rtp_pkt));
+    }
+}
+
+enum mode {
+    MODE_2022_6 = 9000,
+    MODE_2110_ANCILLARY,
+    MODE_2110_AUDIO,
+    MODE_2110_VIDEO,
 };
 
 static const struct option cmd_options[] = {
-    { "2022-6",              no_argument, NULL, OPT_2022_6 },
-    { "2110-video",          no_argument, NULL, OPT_2110_VIDEO },
+    { "2022-6",              no_argument, NULL, MODE_2022_6 },
+    { "2110-ancillary",      no_argument, NULL, MODE_2110_ANCILLARY },
+    { "2110-video",          no_argument, NULL, MODE_2110_VIDEO },
     { "fps",           required_argument, NULL, 'f' },
     { "help",                no_argument, NULL, 'h' },
     { "interlaced",          no_argument, NULL, 'i' },
@@ -337,20 +409,24 @@ int main(int argc, char *argv[])
 {
     int i = 0;
     char filter_exp[100];
-    bool opt_2022_6 = false, opt_2110_video = false, list_ts = false;
-    bool interlaced = false;
+    enum mode mode = MODE_2110_AUDIO;
+    bool list_ts = false, interlaced = false;
     int packet_count = -1;
     int ret = 0;
     const char *ts_type = NULL;
 
     int opt;
     while ((opt = getopt_long(argc, argv, "c:f:hilmt:", cmd_options, NULL)) != -1) switch (opt) {
-        case OPT_2022_6:
-            opt_2022_6 = true;
+        case MODE_2022_6:
+            mode = MODE_2022_6;
             break;
 
-        case OPT_2110_VIDEO:
-            opt_2110_video = true;
+        case MODE_2110_ANCILLARY:
+            mode = MODE_2110_ANCILLARY;
+            break;
+
+        case MODE_2110_VIDEO:
+            mode = MODE_2110_VIDEO;
             break;
 
         case 'c':
@@ -403,7 +479,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    if (opt_2110_video && fps.num == 0) {
+    if (mode == MODE_2110_VIDEO && fps.num == 0) {
         fprintf(stderr, "2110 video requires that you give the frame rate with --fps, and --interlaced if necessary\n");
         return 1;
     }
@@ -599,12 +675,23 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (opt_2022_6)
+    switch (mode) {
+    case MODE_2022_6:
         pcap_loop(pcap, packet_count, got_packet_2022_6, (u_char*)pcap);
-    if (opt_2110_video)
+        break;
+
+    case MODE_2110_ANCILLARY:
+        pcap_loop(pcap, packet_count, got_packet_ancillary, (u_char*)pcap);
+        break;
+
+    case MODE_2110_VIDEO:
         pcap_loop(pcap, packet_count, got_packet_2110_video, (u_char*)pcap);
-    else
+        break;
+
+    case MODE_2110_AUDIO:
         pcap_loop(pcap, packet_count, got_packet, (u_char*)pcap);
+        break;
+    }
 
     close(fd);
 

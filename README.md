@@ -37,7 +37,7 @@ An output like this will be generated:
    
 Note for gapped output the first packet arriving ~600us after ideal is normal 
     
-## Audio
+### Audio
 
 To measure a 2110-30 audio flow from 238.16.1.11:5002 on NIC "eth3.38" in “adapter_unsynced” (`--mellanox`) mode:
 
@@ -49,3 +49,29 @@ An output like this will be generated:
     2022-09-16 21:34:20+0100: RTP-PTP offset -270.833333 us. Audio samples 96
     2022-09-16 21:34:20+0100: RTP-PTP offset -270.833333 us. Audio samples 96
 
+### Ancillary
+
+This tool can probe the packets of an ST 2110-40 (RFC 8331) flow and from the
+header print how many ancillary packets are in each network packet and the total
+length.  For example:
+
+`sudo ./ptpmeasure 238.10.1.20 5004 eth0 --2110-ancillary`
+
+An output like the following will be generated:
+```
+marker: 0, ts: 1012828175, ext seq num: 26249442, len: 140, count: 1
+marker: 1, ts: 1012828175, ext seq num: 26249443, len: 0, count: 0
+marker: 0, ts: 1012829975, ext seq num: 26249444, len: 84, count: 1
+```
+
+If you provide the video framerate and interlacing then it will measure the
+arrival times of the packets relative to PTP and RTP in much the same manner as
+for ST 2110-20 video above.  Example:
+
+`sudo ./ptpmeasure 238.10.1.20 5004 eth0 --2110-ancillary --fps 25/1 --interlaced`
+
+```
+2025-09-05 16:38:33+0100: Packet arrived 0.325 ms after ideal,  RTP-PTP offset -11.111us (-1 rtp), marker: 0.
+2025-09-05 16:38:33+0100: Packet arrived 0.011 ms after ideal,  RTP-PTP offset -20011.111us (-1801 rtp), marker: 1.
+2025-09-05 16:38:33+0100: Packet arrived 0.342 ms after ideal,  RTP-PTP offset -11.111us (-1 rtp), marker: 0.
+```
